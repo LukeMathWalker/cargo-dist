@@ -1,0 +1,58 @@
+{#-
+Implementation of a Dockerfile for building and distributing an app with Docker.
+
+As is usual with docker images, the quirks of this implementation are all based around
+managing the quirks of "layers".
+
+Each top-level command like "RUN" is a "layer" in the docker image that is saved and
+restorable. This is great for saving work between images that have common steps, or
+rebuilding an image. It also means that if you do a bunch of "temporary" work that
+you clean up later, then that temporary gunk is still saved in the image, making it bigger.
+
+So best-practices are to do two things:
+
+* split the image into two:
+  * a Bigger "builder" image that builds the applications with all compile-time dependencies
+  * a Smaller "runner" image that just contains the binaries and any runtime dependencies
+* merge RUN commands with &&:
+  * this minimizes the number of layers and temporary gunk
+  * see for instance the `apt-get` invovations which include an `rm` of a bunch of stuff
+    we don't need anymore. This cleanup is only worth doing because it's chained in with &&.
+    If it was in a separate RUN statement a layer would still be saved with those files,
+    defeating the purpose of removing them.
+
+NOTE: we explicitly *don't* build with cargo-dist here because we don't want to have to
+maintain a bunch of docker images for various distros.
+
+FIXME: add a system for copying in example files or something?
+
+FIXME: respecting rust-toolchain.toml is a challenge here
+  * Ideally we would use the official Rust images as the base for the "builder" image.
+  * You can either select a generic "rust 1.72" image or more specific "rust 1.72 debian bookworm"
+  * For generating this file it would be much more convenient to use the generic form
+  * But we don't want rust tools installed on the "runner" image
+  * But we also need it to use the same base distro image (bookworm) so glibc and whatnot are happy
+  * So we "can't" use the generic image, and "must" use the specific one
+  * This means we need to maintain an index of rust version -> distro image available
+-#}
+FROM {{ builder.image }} as builder
+WORKDIR /usr/src/dist
+COPY . .
+RUN {% if builder.apt_deps -%}
+apt-get update && apt-get install -y {{ builder.apt_deps | safe }} && rm -rf /var/lib/apt/lists/* \
+  &&
+{-% end %}
+{-% for command in builder.commands %}
+  {{ "&& " if not loop.first else "" }}{{ command | safe }}{{ " \\" if not loop.last else "" }}
+{-% end %}
+
+FROM {{ runner.image }}
+{-% if runner.apt_deps %}
+RUN apt-get update && apt-get install -y {{ runner.apt_deps | safe }} && rm -rf /var/lib/apt/lists/*
+{-% end %}
+{-% for bin in bin_paths %}
+COPY --from=builder /usr/src/dist/{{ bin }} /usr/local/bin/
+{-% end %}
+CMD [{-% for bin in bin_names %}"{{ bin }}"{{ ", " if not loop.last else "" }}{-%end}]
+
+

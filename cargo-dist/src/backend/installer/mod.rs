@@ -14,6 +14,7 @@ use self::homebrew::HomebrewInstallerInfo;
 use self::msi::MsiInstallerInfo;
 use self::npm::NpmInstallerInfo;
 
+pub mod docker;
 pub mod homebrew;
 pub mod msi;
 pub mod npm;
