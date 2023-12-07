@@ -1,6 +1,45 @@
 # Unreleased
 
-Nothing Yet!
+The headlining features of this release are:
+
+* Support for specifying arbitrary GitHub Actions Runners
+* The ability to build and upload extra artifacts along side your main build
+
+## Features
+
+### Custom Runners in GitHub Actions
+
+This adds support for specifying which runners to use in GitHub CI. This is useful in order to allow cargo-dist to use paid runners, rather than the free runners it defaults to, and to force Linux builds to use a newer version of Ubuntu. By using paid runners, it's also possible to create builds running on ARM64 hosts.
+
+* impl @milesj [Support custom github runners (and arm64)](https://github.com/axodotdev/cargo-dist/pull/614)
+
+Thanks to @milesj for contributing this!
+
+### Build and Host Extra Artifacts
+
+This feature makes it possible to build and upload extra artifacts beyond what the primary build produces. For example, cargo-dist uses this to build and upload its `dist-manifest-schema.json` to each release. You can use this feature to help build and upload docs, manage extra assets for your release, and more.
+
+* impl @mistydemeo [feat: extra build artifacts](https://github.com/axodotdev/cargo-dist/pull/613)
+
+### Generic Builds Now Set CC/CXX Environment Variables
+
+In generic builds, the `CC` and `CXX` environment variables are now set to platform-appropriate compilers. This is mainly applicable to software written in C and C++.
+
+* impl @mistydemeo [feat: set CC/CXX in generic builds](https://github.com/axodotdev/cargo-dist/pull/616)
+
+## Fixes
+
+### "Broken pipe" message in install script
+
+Fixes an issue where the installer script could report a spurious "broken pipe" message in Linux. Note that this didn't affect the installer's behaviour; it still worked as expected.
+
+* impl @rotu [Fix ldd broken pipe error](https://github.com/axodotdev/cargo-dist/pull/627)
+
+### Better installation failure handling in CI
+
+In the rare case that installing cargo-dist failed in CI, the build would formerly continue anyway and fail in a more confusing way. This has been corrected so that the build now fails immediately.
+
+* impl @mistydemeo [fix(ci): fail fast if installer is missing](https://github.com/axodotdev/cargo-dist/pull/618)
 
 
 # Version 0.5.0 (2023-11-27)
