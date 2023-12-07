@@ -2,56 +2,128 @@
 //!
 //! In the future this may get split up into submodules.
 
+use std::process::Command;
+
 use axoasset::LocalAsset;
-use cargo_dist_schema::{GithubMatrix, GithubMatrixEntry};
+use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::{
-    backend::{diff_files, templates::TEMPLATE_INSTALLER_DOCKER},
-    config::{DependencyKind, SystemDependencies},
+    backend::templates::{Templates, TEMPLATE_INSTALLER_DOCKER},
     errors::DistResult,
-    DistGraph, SortedMap, SortedSet, TargetTriple,
 };
+
+/// Info needed to build an msi
+#[derive(Debug, Clone)]
+pub struct DockerInstallerInfo {
+    /// Binaries we'll be baking into the docker image
+    pub bins: Vec<String>,
+    /// Final file path of the docker image
+    pub file_path: Utf8PathBuf,
+    /// Dir stuff goes to
+    pub package_dir: Utf8PathBuf,
+}
 
 /// Info about running cargo-dist in Github CI
 #[derive(Debug, Serialize)]
-pub struct DockerInfo {
-    pub bin_names: Vec<String>,
-    pub bin_paths: Vec<String>,
-    pub builder: BuilderImage,
-    pub runner: RunnerImage,
+pub struct DockerfileInfo {
+    bins: Vec<Bin>,
+    runner: RunnerImage,
 }
 
 #[derive(Debug, Serialize)]
-pub struct BuilderImage {
-    pub image: String,
-    pub apt_deps: String,
-    pub commands: Vec<String>,
+struct Bin {
+    source: String,
+    name: String,
 }
 
 #[derive(Debug, Serialize)]
-pub struct RunnerImage {
-    pub image: String,
-    pub apt_deps: String,
+struct RunnerImage {
+    image: String,
+    apt_deps: Option<String>,
 }
 
+const RUNNER_IMAGE: &str = "bookworm-slim";
+const DOCKERFILE_NAME: &str = "Dockerfile";
+
+impl DockerInstallerInfo {
+    /// Build the msi installer
+    ///
+    /// Note that this assumes `write_wsx_to_disk` was run beforehand (via `cargo dist generate`),
+    /// which should be enforced by `check_wsx` (via `cargo dist generate --check`).
+    pub fn build(&self, templates: &Templates) -> DistResult<()> {
+        eprintln!("time to DOCK");
+
+        let info = self.dockerfile();
+        let contents = templates.render_file_to_clean_string(TEMPLATE_INSTALLER_DOCKER, &info)?;
+        let dockerfile_path = self.package_dir.join(DOCKERFILE_NAME);
+        LocalAsset::write_new(&contents, dockerfile_path)?;
+
+        let mut cmd = Command::new("docker");
+        cmd.arg("build");
+        cmd.status().unwrap();
+
+        eprintln!("yoooo");
+        Ok(())
+    }
+
+    fn dockerfile(&self) -> DockerfileInfo {
+        let bins = self
+            .bins
+            .iter()
+            .map(|file_name| Bin {
+                source: format!("./{file_name}"),
+                name: file_name.clone(),
+            })
+            .collect();
+        let runner = RunnerImage {
+            image: RUNNER_IMAGE.to_owned(),
+            apt_deps: None,
+        };
+        DockerfileInfo { bins, runner }
+    }
+}
+
+/*
 impl DockerInfo {
     /// Compute the build stuff
     pub fn new(dist: &DistGraph) -> DockerInfo {
-        for release in dist.releases {
-
+        for release in &dist.releases {
+            let mut bins = vec![];
+            let mut apt_deps = None;
+            for &variant_idx in &release.variants {
+                let variant = dist.variant(variant_idx);
+                if variant.target != TARGET_X64_LINUX_GNU {
+                    continue;
+                }
+                for &artifact_idx in &variant.local_artifacts {
+                    let artifact = dist.artifact(artifact_idx);
+                    let ArtifactKind::ExecutableZip(_) = &artifact.kind else {
+                        continue;
+                    };
+                    let Some(archive) = &artifact.archive else {
+                        continue;
+                    };
+                    for &bin_idx in &variant.binaries {
+                        let bin = dist.binary(bin_idx);
+                        let path = archive.dir_path.join(&bin.file_name);
+                        bins.push(Bin { source: path.to_string(), name: bin.name.clone() });
+                    }
+                }
+            }
+            if !bins.is_empty() {
+                return DockerInfo {
+                    bins,
+                    runner: RunnerImage { image: RUNNER_IMAGE.to_owned(), apt_deps },
+                }
+            }
         }
+        unreachable!()
 
-        DockerInfo {
-            bin_names,
-            bin_paths,
-            builder,
-            runner,
-        }
     }
 
     fn dockerfile_path(&self, dist: &DistGraph) -> camino::Utf8PathBuf {
-        let dir = dist.workspace_dir;
+        let dir = &dist.workspace_dir;
         dir.join("Dockerfile")
     }
 
@@ -67,7 +139,7 @@ impl DockerInfo {
     /// Write release.yml to disk
     pub fn write_to_disk(&self, dist: &DistGraph) -> Result<(), miette::Report> {
         let ci_file = self.dockerfile_path(dist);
-        let rendered = self.generate_github_ci(dist)?;
+        let rendered = self.generate_dockerfile(dist)?;
 
         LocalAsset::write_new_all(&rendered, &ci_file)?;
         eprintln!("generated Github CI to {}", ci_file);
@@ -84,37 +156,10 @@ impl DockerInfo {
         diff_files(&ci_file, &rendered)
     }
 }
+ */
+/*
 
-fn package_install_for_targets(
-    targets: &Vec<&TargetTriple>,
-    packages: &SystemDependencies,
-) -> Option<String> {
-    // TODO handle mixed-OS targets
-    for target in targets {
-        match target.as_str() {
-            "i686-apple-darwin" | "x86_64-apple-darwin" | "aarch64-apple-darwin" => {
-                let packages: Vec<String> = packages
-                    .homebrew
-                    .clone()
-                    .into_iter()
-                    .filter(|(_, package)| package.0.wanted_for_target(target))
-                    .filter(|(_, package)| package.0.stage_wanted(&DependencyKind::Build))
-                    .map(|(name, _)| name)
-                    .collect();
-
-                if packages.is_empty() {
-                    return None;
-                }
-
-                return Some(brew_bundle_command(&packages));
-            }
-            "i686-unknown-linux-gnu"
-            | "x86_64-unknown-linux-gnu"
-            | "aarch64-unknown-linux-gnu"
-            | "i686-unknown-linux-musl"
-            | "x86_64-unknown-linux-musl"
-            | "aarch64-unknown-linux-musl" => {
-                let mut packages: Vec<String> = packages
+let mut packages: Vec<String> = packages
                     .apt
                     .clone()
                     .into_iter()
@@ -141,32 +186,5 @@ fn package_install_for_targets(
 
                 let apts = packages.join(" ");
                 return Some(format!("sudo apt-get install {apts}").to_owned());
-            }
-            "i686-pc-windows-msvc" | "x86_64-pc-windows-msvc" | "aarch64-pc-windows-msvc" => {
-                let commands: Vec<String> = packages
-                    .chocolatey
-                    .clone()
-                    .into_iter()
-                    .filter(|(_, package)| package.0.wanted_for_target(target))
-                    .filter(|(_, package)| package.0.stage_wanted(&DependencyKind::Build))
-                    .map(|(name, package)| {
-                        if let Some(version) = package.0.version {
-                            format!("choco install {name} --version={version}")
-                        } else {
-                            format!("choco install {name}")
-                        }
-                    })
-                    .collect();
 
-                if commands.is_empty() {
-                    return None;
-                }
-
-                return Some(commands.join("\n"));
-            }
-            _ => {}
-        }
-    }
-
-    None
-}
+*/

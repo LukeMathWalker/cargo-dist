@@ -535,6 +535,7 @@ fn get_new_dist_metadata(
                 InstallerStyle::Npm,
                 InstallerStyle::Homebrew,
                 InstallerStyle::Msi,
+                InstallerStyle::Docker,
             ]
         } else {
             eprintln!("{notice} no CI backends enabled, most installers have been hidden");
@@ -563,6 +564,7 @@ fn get_new_dist_metadata(
                 InstallerStyle::Npm => "npm",
                 InstallerStyle::Homebrew => "homebrew",
                 InstallerStyle::Msi => "msi",
+                InstallerStyle::Docker => "docker",
             });
         }
 

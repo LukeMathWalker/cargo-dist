@@ -313,7 +313,9 @@ mod test {
         let templates = Templates::new().unwrap();
 
         templates.get_template_file(TEMPLATE_INSTALLER_SH).unwrap();
-        templates.get_template_file(TEMPLATE_INSTALLER_DOCKER).unwrap();
+        templates
+            .get_template_file(TEMPLATE_INSTALLER_DOCKER)
+            .unwrap();
         templates.get_template_file(TEMPLATE_INSTALLER_RB).unwrap();
         templates.get_template_file(TEMPLATE_INSTALLER_PS1).unwrap();
         templates.get_template_dir(TEMPLATE_INSTALLER_NPM).unwrap();
